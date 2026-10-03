@@ -61,6 +61,70 @@ At-risk players, churn-risk distribution, churn probability vs early engagement,
 
 The sidebar supports filtering by platform, country, segment, and churn-risk band.
 
+A fourth view, **Chat with your player data**, exposes the text-to-SQL agent described below.
+
+## Chat with your player data
+
+Ask questions about the raw SQLite data in plain English. A LangChain agent backed by Google Gemini (`ChatGoogleGenerativeAI`) writes a SQLite query grounded in the live database schema, the query is validated and run read-only, and the response contains the **generated SQL, the result rows and a short natural-language answer**. The SQL is always returned so every answer can be traced to the query that produced it. If a question can't be answered from the available tables, the agent says so instead of guessing.
+
+Example questions:
+
+- Which 5 countries generated the most IAP revenue?
+- How many accounts were created on iOS vs Android?
+- What is the average session duration in minutes by platform?
+- How many distinct players were active each month in 2016?
+- What share of payers made more than one purchase?
+
+### Run the API
+
+```bash
+pip install -r requirements.txt
+export GOOGLE_API_KEY=...            # required for /chat
+uvicorn api:app --reload
+```
+
+```bash
+curl localhost:8000/health
+# {"status":"ok"}
+
+curl -X POST localhost:8000/chat -H "Content-Type: application/json" \
+     -d '{"question": "Which 5 countries generated the most IAP revenue?"}'
+# {"sql": "SELECT ... LIMIT 5", "rows": [{"country_code": "US", "revenue_usd": 13148.18}, ...],
+#  "answer": "The US leads with $13,148.18, followed by ..."}
+```
+
+Errors are clean JSON, `{"error": "<code>", "detail": "<message>"}`: `400` for an invalid question or a rejected/failed query, `503` when the database or LLM is unavailable, `500` for anything unexpected (no internals are returned). Interactive docs are at `/docs`.
+
+Configuration (environment variables):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GOOGLE_API_KEY` | (none) | Gemini API key (never logged or returned) |
+| `CHAT_MODEL` | `gemini-flash-latest` | Gemini model id |
+| `PLAYER_DB_PATH` | first `*.sqlite` in `csv/data/` | Path to the SQLite database |
+| `CHAT_MAX_ROWS` | `1000` | Maximum rows returned per query |
+| `CHAT_QUERY_TIMEOUT_SEC` | `10` | Per-query execution time budget |
+
+### Safety design
+
+The endpoint is **strictly read-only and injection-guarded**, with independent layers so that no single failure allows a write:
+
+1. **Schema-aware prompting.** The prompt contains the real table and column names read from the database. The model is told to emit one SELECT only, to use only listed columns, and to treat the user's question as data, not instructions.
+2. **Parser-based validation** (`chat/safety.py`). The SQL is parsed into a syntax tree with `sqlglot`, not matched against strings. It is rejected unless it is **exactly one** `SELECT` (or `UNION`/`WITH ... SELECT`). Any `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `REPLACE`, `ATTACH`/`DETACH`, `PRAGMA`, `VACUUM`, transaction, or `SELECT ... INTO` is rejected anywhere in the tree, including inside CTEs. Semicolon-chained statements are rejected. Dangerous functions (`load_extension`, `readfile`, `writefile`, ...), table-valued functions, schema-qualified names and tables outside `account`, `account_date_session` and `iap_purchase` are rejected too.
+3. **Row limit.** The outer query's `LIMIT` is added, or clamped, to at most 1000 rows. That includes `LIMIT -1` and non-literal limits. The SQL that runs is regenerated from the validated tree with comments stripped, so what executes is exactly what was checked.
+4. **Read-only connection** (`chat/db.py`). SQLite is opened via a `file:...?mode=ro` URI with `PRAGMA query_only = ON`. A SQLite **authorizer** permits only SELECT, reads of the three player tables and safe functions; the engine itself denies everything else. A progress handler aborts queries that run past the time budget, and results are fetched with a hard row cap.
+5. **No leakage.** API errors never include the API key, file paths or stack traces; details are logged server-side only.
+
+The test suite includes adversarial cases (DML/DDL, chaining, `PRAGMA`, `ATTACH`, writes hidden in CTEs, filesystem functions, unbounded limits). It checks the parser and the database layer independently, then confirms the data is unchanged afterwards.
+
+### Tests
+
+```bash
+pytest
+```
+
+The tests are fully offline. They use an in-memory SQLite fixture that mirrors the real schema and a fake LLM that returns scripted SQL, so no API key or network is needed.
+
 ## Project structure
 
 ```text
@@ -68,6 +132,14 @@ slingshot-player-lifecycle-analytics/
 ├── README.md
 ├── requirements.txt
 ├── app.py
+├── api.py                 # FastAPI: /health, /chat
+├── chat/                  # text-to-SQL agent package
+│   ├── agent.py           # LangChain + Gemini prompt/answer flow
+│   ├── safety.py          # parser-based SELECT-only validation + row limit
+│   ├── db.py              # read-only, authorizer-guarded SQLite access
+│   ├── config.py
+│   └── errors.py
+├── tests/                 # offline pytest suite (fake LLM, in-memory DB)
 ├── notebooks/
 │   └── Slingshot_Studios_Player_Lifecycle_Analytics.ipynb
 ├── data/

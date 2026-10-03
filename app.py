@@ -323,6 +323,59 @@ def churn_page(data: dict[str, pd.DataFrame], players: pd.DataFrame) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
 
+@st.cache_resource
+def get_chat_agent():
+    # Imported lazily so the dashboard still runs without the GenAI dependencies.
+    from chat import PlayerDataAgent
+
+    return PlayerDataAgent.from_env()
+
+
+def chat_page() -> None:
+    st.header("Chat with your player data")
+    st.caption(
+        "Ask a question in plain English. It is translated into a single read-only "
+        "SELECT over the raw SQLite tables; sidebar filters do not apply here."
+    )
+
+    with st.expander("Example questions"):
+        st.markdown(
+            "- Which 5 countries generated the most IAP revenue?\n"
+            "- How many accounts were created on iOS vs Android?\n"
+            "- What is the average session duration in minutes by platform?\n"
+            "- How many daily active players were there in March 2016?"
+        )
+
+    question = st.text_input("Question", placeholder="Which platform has the most payers?")
+    if not st.button("Ask", type="primary") or not question.strip():
+        return
+
+    try:
+        from chat import ChatError
+
+        agent = get_chat_agent()
+        with st.spinner("Writing and running a read-only query..."):
+            result = agent.ask(question)
+    except ImportError:
+        st.error("Chat dependencies are not installed. Run `pip install -r requirements.txt`.")
+        return
+    except ValueError as exc:
+        st.warning(str(exc))
+        return
+    except ChatError as exc:
+        st.error(str(exc))
+        return
+
+    st.markdown(f"**Answer:** {result.answer}")
+    if result.sql:
+        st.markdown("**Generated SQL**")
+        st.code(result.sql, language="sql")
+    if result.rows:
+        st.dataframe(pd.DataFrame(result.rows, columns=result.columns), use_container_width=True)
+        if result.truncated:
+            st.caption(f"Showing the first {len(result.rows):,} rows (row limit reached).")
+
+
 def main() -> None:
     st.title("Slingshot Studios | Player Lifecycle, Retention & Monetization")
     st.caption("Streamlit dashboard built from the supplied 2016 mobile-game analytical dataset.")
@@ -337,8 +390,17 @@ def main() -> None:
 
     page = st.sidebar.radio(
         "Dashboard",
-        ["Executive Player Health", "Player Segmentation & Monetization", "Churn Risk & Monitoring"],
+        [
+            "Executive Player Health",
+            "Player Segmentation & Monetization",
+            "Churn Risk & Monitoring",
+            "Chat with your player data",
+        ],
     )
+
+    if page == "Chat with your player data":
+        chat_page()
+        return
 
     if players.empty:
         st.warning("No players match the current filters.")
