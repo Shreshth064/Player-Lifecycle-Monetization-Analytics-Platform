@@ -130,8 +130,9 @@ def test_missing_api_key(monkeypatch):
 
 def test_build_llm_uses_configured_model(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key-not-real")
-    llm = build_llm(ChatSettings(model="gemini-flash-latest"))
-    assert "gemini-flash-latest" in llm.model
+    llm = build_llm(ChatSettings(model="gemini-flash-lite-latest"))
+    assert "gemini-flash-lite-latest" in llm.model
+    assert llm.max_retries == 1  # SDK retries off; chat.retry owns the policy
 
 
 @pytest.mark.parametrize(

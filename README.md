@@ -100,7 +100,8 @@ Configuration (environment variables):
 | Variable | Default | Purpose |
 |---|---|---|
 | `GOOGLE_API_KEY` | (none) | Gemini API key (never logged or returned) |
-| `CHAT_MODEL` | `gemini-flash-latest` | Gemini model id |
+| `CHAT_MODEL` | `gemini-flash-lite-latest` | Gemini model id |
+| `CHAT_LLM_MAX_ATTEMPTS` | `3` | Attempts per LLM call; only 429/503 errors are retried, with exponential backoff + jitter |
 | `PLAYER_DB_PATH` | first `*.sqlite` in `csv/data/` | Path to the SQLite database |
 | `CHAT_MAX_ROWS` | `1000` | Maximum rows returned per query |
 | `CHAT_QUERY_TIMEOUT_SEC` | `10` | Per-query execution time budget |
