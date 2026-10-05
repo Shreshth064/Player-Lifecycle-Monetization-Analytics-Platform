@@ -21,6 +21,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from chat.config import ChatSettings
 from chat.db import PlayerDatabase
 from chat.errors import ChatError, LLMUnavailableError
+from chat.retry import call_with_retry, is_transient_llm_error
 from chat.safety import validate_select
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,11 @@ def build_llm(settings: ChatSettings) -> BaseChatModel:
         )
     from langchain_google_genai import ChatGoogleGenerativeAI
 
-    return ChatGoogleGenerativeAI(model=settings.model, api_key=api_key, temperature=0)
+    # max_retries=1 disables the Google SDK's own retry loop (0 means "SDK
+    # default"), so the 429/503-only policy in chat.retry is the single one.
+    return ChatGoogleGenerativeAI(
+        model=settings.model, api_key=api_key, temperature=0, max_retries=1
+    )
 
 
 def _message_text(message: Any) -> str:
@@ -144,11 +149,21 @@ class PlayerDataAgent:
     def _invoke(self, prompt: ChatPromptTemplate, **variables: Any) -> str:
         chain = prompt | self.llm
         try:
-            return _message_text(chain.invoke(variables)).strip()
+            message = call_with_retry(
+                lambda: chain.invoke(variables),
+                attempts=self.settings.llm_max_attempts,
+                initial_wait_sec=self.settings.llm_retry_initial_wait_sec,
+                max_wait_sec=self.settings.llm_retry_max_wait_sec,
+            )
+            return _message_text(message).strip()
         except ChatError:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("LLM call failed")
+            if is_transient_llm_error(exc):
+                raise LLMUnavailableError(
+                    "The language model is busy or rate-limited. Please try again shortly."
+                ) from None
             raise LLMUnavailableError("The language model did not respond. Try again later.") from None
 
     def generate_sql(self, question: str) -> str:

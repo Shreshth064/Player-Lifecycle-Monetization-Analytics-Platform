@@ -102,7 +102,13 @@ def file_db_path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def settings() -> ChatSettings:
-    return ChatSettings(model="fake", max_rows=10, query_timeout_sec=5.0)
+    return ChatSettings(
+        model="fake",
+        max_rows=10,
+        query_timeout_sec=5.0,
+        llm_retry_initial_wait_sec=0.0,
+        llm_retry_max_wait_sec=0.0,
+    )
 
 
 @pytest.fixture

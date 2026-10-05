@@ -10,9 +10,12 @@ from chat.errors import DatabaseUnavailableError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_DIR = PROJECT_ROOT / "csv" / "data"
-DEFAULT_MODEL = "gemini-flash-latest"
+DEFAULT_MODEL = "gemini-flash-lite-latest"
 DEFAULT_MAX_ROWS = 1000
 DEFAULT_QUERY_TIMEOUT_SEC = 10.0
+DEFAULT_LLM_MAX_ATTEMPTS = 3
+DEFAULT_LLM_RETRY_INITIAL_WAIT_SEC = 1.0
+DEFAULT_LLM_RETRY_MAX_WAIT_SEC = 10.0
 
 
 def find_database(explicit: str | os.PathLike[str] | None = None) -> Path:
@@ -41,6 +44,9 @@ class ChatSettings:
     model: str = DEFAULT_MODEL
     max_rows: int = DEFAULT_MAX_ROWS
     query_timeout_sec: float = DEFAULT_QUERY_TIMEOUT_SEC
+    llm_max_attempts: int = DEFAULT_LLM_MAX_ATTEMPTS
+    llm_retry_initial_wait_sec: float = DEFAULT_LLM_RETRY_INITIAL_WAIT_SEC
+    llm_retry_max_wait_sec: float = DEFAULT_LLM_RETRY_MAX_WAIT_SEC
 
     @classmethod
     def from_env(cls) -> "ChatSettings":
@@ -50,4 +56,5 @@ class ChatSettings:
             query_timeout_sec=float(
                 os.getenv("CHAT_QUERY_TIMEOUT_SEC", DEFAULT_QUERY_TIMEOUT_SEC)
             ),
+            llm_max_attempts=int(os.getenv("CHAT_LLM_MAX_ATTEMPTS", DEFAULT_LLM_MAX_ATTEMPTS)),
         )
