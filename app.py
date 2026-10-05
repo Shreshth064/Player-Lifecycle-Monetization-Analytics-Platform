@@ -185,7 +185,7 @@ def segmentation_page(data: dict[str, pd.DataFrame], players: pd.DataFrame) -> N
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    seg = data["segment_summary"].copy()
+    seg = data["segments"].copy()
     seg_long = seg.melt(
         id_vars=["segment"],
         value_vars=["median_active_days_14", "median_sessions_14", "median_hours_14"],
